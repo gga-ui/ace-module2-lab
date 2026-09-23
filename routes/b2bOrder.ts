@@ -13,11 +13,28 @@ import { challenges } from '../data/datacache'
 import * as security from '../lib/insecurity'
 import * as utils from '../lib/utils'
 
+function hasSandboxBreakout (input: any): boolean {
+  if (typeof input !== 'string') {
+    input = JSON.stringify(input) || ''
+  }
+  const decoded = input
+    .replace(/\\u\{([0-9a-fA-F]+)\}/g, (_: string, c: string) => String.fromCodePoint(parseInt(c, 16)))
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_: string, c: string) => String.fromCharCode(parseInt(c, 16)))
+    .replace(/\\x([0-9a-fA-F]{2})/g, (_: string, c: string) => String.fromCharCode(parseInt(c, 16)))
+  const collapsed = decoded.replace(/["'`]\s*\+\s*["'`]/g, '')
+  const forbidden = /(constructor|__proto__|prototype|process|mainModule|require|import|child_process|execSync|execFile|spawn|Reflect|fromCharCode|fromCodePoint|global|globalThis|Buffer)/i
+  const forbiddenCalls = /\b(Function|eval)\s*\(/
+  return forbidden.test(decoded) || forbidden.test(collapsed) || forbiddenCalls.test(decoded) || forbiddenCalls.test(collapsed)
+}
+
 export function b2bOrder () {
   return ({ body }: Request, res: Response, next: NextFunction) => {
     if (utils.isChallengeEnabled(challenges.rceChallenge) || utils.isChallengeEnabled(challenges.rceOccupyChallenge)) {
       const orderLinesData = body.orderLinesData || ''
       try {
+        if (hasSandboxBreakout(orderLinesData)) {
+          throw new Error('Sandbox breakout detected')
+        }
         const sandbox = { safeEval, orderLinesData }
         vm.createContext(sandbox)
         vm.runInContext('safeEval(orderLinesData)', sandbox, { timeout: 2000 })
